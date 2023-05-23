@@ -1,0 +1,9 @@
+tests/
+!tests/.gitkeep
+
+bin/
+.DS_Store
+
+.vscode/
+.vs/
+.idea/
