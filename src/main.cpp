@@ -8,6 +8,7 @@
 
 #define LEARNING_RATE 0.1
 #define MOMENTUM 0.9
+#define HIDDEN_LAYER_SIZE 16
 #define EPOCHS 30
 
 #ifndef USER
@@ -44,11 +45,13 @@ std::vector<Message> readChat(const std::string &filename)
 		if (line.find('>') != std::string::npos) continue;
 		if (line.find("M - ") == std::string::npos) continue;
 
-		size_t timestampPosition = line.find("M - ");
-		Message message;
-		message.sender = line.substr(timestampPosition + 4, line.find(':') - timestampPosition - 4);
-		message.content = line.substr(line.find(':') + 2);
-		messages.push_back(message);
+		size_t timestampPosition = line.find("M - ") + 4;
+		size_t contentPosition = line.find(": ", timestampPosition) + 2;
+
+		std::string sender = line.substr(timestampPosition, contentPosition - timestampPosition - 2);
+		std::string content = line.substr(contentPosition);
+
+		messages.push_back({sender, content});
 	}
 
 	file.close();
@@ -166,7 +169,7 @@ int main(int argc, char** argv)
 	std::vector<std::vector<double>> inputs = getInputs(messages, vocabulary);
 	std::vector<std::vector<double>> outputs = getOutputs(messages, vocabulary);
 
-	std::vector<int> layers = {(int) vocabulary.size(), 10, 10, (int) vocabulary.size()};
+	std::vector<int> layers = {(int) inputs[0].size(), HIDDEN_LAYER_SIZE, HIDDEN_LAYER_SIZE, (int) outputs[0].size()};
 	NeuralNetwork nn(layers);
 
 	if (nn.loadModel("model.bin")) std::cout << "Model loaded." << std::endl;
@@ -215,32 +218,22 @@ int main(int argc, char** argv)
 		}
 
 		std::vector<std::vector<double>> output = nn.forward(input);
-		std::vector<std::pair<double, int>> sortedOutput;
-		sortedOutput.reserve(output.size());
-
-		for (auto &i: output) for (int j = 0; j < (int) i.size(); ++j) sortedOutput.emplace_back(i[j], j);
-		std::sort(sortedOutput.begin(), sortedOutput.end(), std::greater<>());
 
 		std::cout << "Possible responses: ";
-		std::vector<bool> used(vocabulary.size());
 		std::vector<std::string> responses;
 
-		for (int i = 0; i < (int) sortedOutput.size(); ++i)
+		for (int i = 0; i < (int) output[0].size(); ++i) if (output[0][i] > 0.5) responses.push_back(vocabulary[i]);
+		if (responses.empty()) std::cout << "None" << std::endl;
+		else
 		{
-			int index = sortedOutput[i].second;
-			if (used[index]) continue;
+			for (int i = 0; i < (int) responses.size(); ++i)
+			{
+				std::cout << responses[i];
+				if (i < (int) responses.size() - 1) std::cout << " ";
+			}
 
-			used[index] = true;
-			responses.push_back(vocabulary[index]);
+			std::cout << std::endl;
 		}
-
-		for (int i = 0; i < (int) responses.size(); ++i)
-		{
-			std::cout << responses[i];
-			if (i != (int) responses.size() - 1) std::cout << " ";
-		}
-
-		std::cout << std::endl;
 	}
 
 	return EXIT_SUCCESS;
