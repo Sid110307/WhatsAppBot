@@ -3,18 +3,22 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <cmath>
+#include <fstream>
 #include <random>
+#include <cmath>
 
 class NeuralNetwork
 {
 public:
 	explicit NeuralNetwork(const std::vector<int> &layers);
-	std::vector<double> forward(const std::vector<double> &input);
+	std::vector<std::vector<double>> forward(const std::vector<double> &input);
 	void backPropagate(const std::vector<double> &targets);
 
 	void updateWeights(double learningRate, double momentum);
 	double getError(const std::vector<double> &target);
+
+	bool saveModel(const std::string &filename);
+	bool loadModel(const std::string &filename);
 
 private:
 	std::vector<std::vector<std::vector<double>>> weights, weightChanges, gradients;

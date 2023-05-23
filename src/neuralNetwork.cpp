@@ -44,43 +44,42 @@ NeuralNetwork::NeuralNetwork(const std::vector<int> &layers)
 	}
 }
 
-std::vector<double> NeuralNetwork::forward(const std::vector<double> &input)
+std::vector<std::vector<double>> NeuralNetwork::forward(const std::vector<double> &input)
 {
 	activations.resize(weights.size() + 1);
 	activations[0] = input;
 
-	for (int i = 1; i < (int) activations.size(); ++i)
+	for (int i = 0; i < (int) weights.size(); ++i)
 	{
-		activations[i].resize(weights[i - 1].size());
-		for (int j = 0; j < (int) activations[i].size(); ++j)
+		activations[i + 1].resize(weights[i].size());
+		for (int j = 0; j < (int) weights[i].size(); ++j)
 		{
 			double sum = 0;
-			for (int k = 0; k < (int) activations[i - 1].size(); ++k)
-				sum += weights[i - 1][j][k] * activations[i - 1][k];
+			for (int k = 0; k < (int) weights[i][j].size(); ++k)
+				sum += weights[i][j][k] * activations[i][k];
 
-			activations[i][j] = sigmoid(sum + biases[i - 1][j]);
+			sum += biases[i][j];
+			activations[i + 1][j] = sigmoid(sum);
 		}
 	}
 
-	return activations.back();
+	return activations;
 }
 
 void NeuralNetwork::backPropagate(const std::vector<double> &targets)
 {
-	for (int i = 0; i < (int) activations.size(); ++i)
-		errors.back()[i] = costDerivatives.back()[i] * (activations.back()[i] - targets[i]);
+	for (int i = 0; i < (int) deltas.back().size(); ++i)
+		deltas.back()[i] = (activations.back()[i] - targets[i]) * sigmoidDerivative(activations.back()[i]);
 
-	for (int i = (int) errors.size() - 2; i >= 0; --i)
-		for (int j = 0; j < (int) errors[i].size(); ++j)
-		{
-			errors[i][j] = 0;
-			for (int k = 0; k < (int) errors[i + 1].size(); ++k)
-				errors[i][j] += weights[i + 1][k][j] * errors[i + 1][k];
-		}
-
-	for (int i = 0; i < (int) deltas.size(); ++i)
+	for (int i = (int) deltas.size() - 2; i >= 0; --i)
 		for (int j = 0; j < (int) deltas[i].size(); ++j)
-			deltas[i][j] = errors[i][j] * sigmoidDerivative(activations[i + 1][j]);
+		{
+			double sum = 0;
+			for (int k = 0; k < (int) deltas[i + 1].size(); ++k)
+				sum += weights[i + 1][k][j] * deltas[i + 1][k];
+
+			deltas[i][j] = sum * sigmoidDerivative(activations[i + 1][j]);
+		}
 }
 
 void NeuralNetwork::updateWeights(double learningRate, double momentum)
@@ -90,15 +89,17 @@ void NeuralNetwork::updateWeights(double learningRate, double momentum)
 		{
 			for (int k = 0; k < (int) weights[i][j].size(); ++k)
 			{
-				gradients[i][j][k] = deltas[i][j] * activations[i][k];
-				weightChanges[i][j][k] = learningRate * gradients[i][j][k] + momentum * weightChanges[i][j][k];
+				double delta = learningRate * deltas[i][j] * activations[i][k];
 				weights[i][j][k] -= weightChanges[i][j][k];
+				weights[i][j][k] += delta;
+				weightChanges[i][j][k] = delta + momentum * weightChanges[i][j][k];
 			}
 
-			biasChanges[i][j] = learningRate * deltas[i][j] + momentum * biasChanges[i][j];
+			double delta = learningRate * deltas[i][j];
 			biases[i][j] -= biasChanges[i][j];
+			biases[i][j] += delta;
+			biasChanges[i][j] = delta + momentum * biasChanges[i][j];
 		}
-
 }
 
 double NeuralNetwork::getError(const std::vector<double> &target)
@@ -109,6 +110,46 @@ double NeuralNetwork::getError(const std::vector<double> &target)
 	return error;
 }
 
+bool NeuralNetwork::saveModel(const std::string &filename)
+{
+	std::ofstream file(filename);
+	if (!file || !file.is_open())
+	{
+		std::cerr << "Error: could not open file " << filename << "\n";
+		return false;
+	}
+
+	for (int i = 0; i < (int) weights.size(); ++i)
+		for (int j = 0; j < (int) weights[i].size(); ++j)
+		{
+			for (double k: weights[i][j]) file << k << " ";
+			file << biases[i][j] << "\n";
+		}
+
+	file.close();
+	return true;
+}
+
+bool NeuralNetwork::loadModel(const std::string &filename)
+{
+	std::ifstream file(filename);
+	if (!file || !file.is_open())
+	{
+		std::cerr << "Error: could not open file " << filename << "\n";
+		return false;
+	}
+
+	for (int i = 0; i < (int) weights.size(); ++i)
+		for (int j = 0; j < (int) weights[i].size(); ++j)
+		{
+			for (double &k: weights[i][j]) file >> k;
+			file >> biases[i][j];
+		}
+
+	file.close();
+	return true;
+}
+
 double NeuralNetwork::sigmoid(double x)
 {
 	return 1 / (1 + exp(-x));
@@ -116,7 +157,8 @@ double NeuralNetwork::sigmoid(double x)
 
 double NeuralNetwork::sigmoidDerivative(double x)
 {
-	return x * (1 - x);
+	auto sigmoidX = sigmoid(x);
+	return sigmoidX * (1 - sigmoidX);
 }
 
 double NeuralNetwork::cost(double output, double target)

@@ -2,14 +2,13 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <map>
 
 #include "include/neuralNetwork.h"
 
 #define LEARNING_RATE 0.1
 #define MOMENTUM 0.9
-#define EPOCHS 100
-#define ERROR_THRESHOLD 0.01
-#define MAX_RESPONSES 5
+#define EPOCHS 30
 
 #ifndef USER
 #error "Please define USER when compiling (e.g. -DUSER=\"John Doe\"). The user is the person whose messages will be used to train the neural network."
@@ -37,16 +36,18 @@ std::vector<Message> readChat(const std::string &filename)
 	{
 		if (line.empty()) continue;
 		if (line.find("\u200E") != std::string::npos) continue;
+		if (line.find("Messages and calls are end-to-end encrypted.") != std::string::npos) continue;
+		if (line.find("Disappearing messages were turned off.") != std::string::npos) continue;
+		if (line.find("This message was deleted.") != std::string::npos) continue;
+		if (line.find("You deleted this message.") != std::string::npos) continue;
+		if (line.find('<') != std::string::npos) continue;
+		if (line.find('>') != std::string::npos) continue;
+		if (line.find("M - ") == std::string::npos) continue;
 
-		size_t closingBracketPos = line.find(']');
-		size_t colonPos = line.find(':');
-
-		if (closingBracketPos == std::string::npos || colonPos == std::string::npos)
-			continue;
-
+		size_t timestampPosition = line.find("M - ");
 		Message message;
-		message.sender = line.substr(closingBracketPos + 2, colonPos - closingBracketPos - 2);
-		message.content = line.substr(colonPos + 2);
+		message.sender = line.substr(timestampPosition + 4, line.find(':') - timestampPosition - 4);
+		message.content = line.substr(line.find(':') + 2);
 		messages.push_back(message);
 	}
 
@@ -89,6 +90,22 @@ std::vector<std::string> getVocabulary(const std::vector<Message> &messages)
 				}
 
 			if (!found) vocabulary.push_back(token);
+		}
+	}
+
+	std::map<std::string, int> wordCount;
+	for (const Message &message: messages)
+	{
+		std::vector<std::string> tokens = tokenize(message.content);
+		for (const std::string &token: tokens) wordCount[token]++;
+	}
+
+	for (int i = 0; i < (int) vocabulary.size(); ++i)
+	{
+		if (wordCount[vocabulary[i]] < 2)
+		{
+			vocabulary.erase(vocabulary.begin() + i);
+			i--;
 		}
 	}
 
@@ -152,61 +169,79 @@ int main(int argc, char** argv)
 	std::vector<int> layers = {(int) vocabulary.size(), 10, 10, (int) vocabulary.size()};
 	NeuralNetwork nn(layers);
 
-	for (int i = 0; i < EPOCHS; ++i)
+	if (nn.loadModel("model.bin")) std::cout << "Model loaded." << std::endl;
+	else
 	{
-		double error = 0;
-		for (int j = 0; j < (int) inputs.size(); ++j)
+		std::cout << "Model doesn't exist. Training new model..." << std::endl;
+		for (int i = 0; i < EPOCHS; ++i)
 		{
-			nn.forward(inputs[j]);
-			nn.backPropagate(outputs[j]);
-			nn.updateWeights(LEARNING_RATE, MOMENTUM);
-			error += nn.getError(outputs[j]);
-		}
-
-		error /= (double) inputs.size();
-		if (error < ERROR_THRESHOLD)
-		{
-			std::cout << "Error threshold reached after " << i + 1 << " epochs." << std::endl;
-			break;
-		}
-	}
-
-	std::string message;
-	std::cout << "Enter a message: ";
-	std::getline(std::cin, message);
-	std::vector<double> input(vocabulary.size());
-	std::vector<std::string> tokens = tokenize(message);
-
-	for (const std::string &token: tokens)
-	{
-		for (int i = 0; i < (int) vocabulary.size(); ++i)
-			if (token == vocabulary[i])
+			double error = 0;
+			for (int j = 0; j < (int) inputs.size(); ++j)
 			{
-				input[i] = 1;
-				break;
+				nn.forward(inputs[j]);
+				nn.backPropagate(outputs[j]);
+				nn.updateWeights(LEARNING_RATE, MOMENTUM);
+
+				error += nn.getError(outputs[j]);
 			}
-	}
 
-	std::vector<double> output = nn.forward(input);
-	std::vector<std::pair<double, int>> sortedOutput;
-	sortedOutput.reserve(output.size());
-
-	for (int i = 0; i < (int) output.size(); ++i) sortedOutput.emplace_back(output[i], i);
-	std::sort(sortedOutput.begin(), sortedOutput.end(), std::greater<>());
-
-	std::cout << "Possible responses: ";
-	for (int i = 0; i < MAX_RESPONSES; ++i)
-	{
-		std::string response;
-		for (int j = 0; j < (int) tokens.size(); ++j)
-		{
-			if (j > 0) response += ' ';
-			response += vocabulary[sortedOutput[i].second];
+			std::cout << "Epoch " << i + 1 << ": " << error / (int) inputs.size() << std::endl;
 		}
 
-		std::cout << response << " (" << sortedOutput[i].first * 100 << "%) ";
+		if (nn.saveModel("model.bin")) std::cout << "Model saved." << std::endl;
+		else std::cerr << "Failed to save model." << std::endl;
 	}
 
-	std::cout << std::endl;
+	std::cout << "You are: " << USER << std::endl;
+	while (true)
+	{
+		std::string message;
+		std::cout << "Enter a message (type QUIT to quit): ";
+
+		std::getline(std::cin, message);
+		if (message == "QUIT") break;
+
+		std::vector<double> input(vocabulary.size());
+		std::vector<std::string> tokens = tokenize(message);
+
+		for (const std::string &token: tokens)
+		{
+			for (int i = 0; i < (int) vocabulary.size(); ++i)
+				if (token == vocabulary[i])
+				{
+					input[i] = 1;
+					break;
+				}
+		}
+
+		std::vector<std::vector<double>> output = nn.forward(input);
+		std::vector<std::pair<double, int>> sortedOutput;
+		sortedOutput.reserve(output.size());
+
+		for (auto &i: output) for (int j = 0; j < (int) i.size(); ++j) sortedOutput.emplace_back(i[j], j);
+		std::sort(sortedOutput.begin(), sortedOutput.end(), std::greater<>());
+
+		std::cout << "Possible responses: ";
+		std::vector<bool> used(vocabulary.size());
+		std::vector<std::string> responses;
+
+		for (int i = 0; i < (int) sortedOutput.size(); ++i)
+		{
+			int index = sortedOutput[i].second;
+			if (used[index]) continue;
+
+			used[index] = true;
+			responses.push_back(vocabulary[index]);
+		}
+
+		for (int i = 0; i < (int) responses.size(); ++i)
+		{
+			std::cout << responses[i];
+			if (i != (int) responses.size() - 1) std::cout << " ";
+		}
+
+		std::cout << std::endl;
+	}
+
 	return EXIT_SUCCESS;
 }
