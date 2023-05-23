@@ -1,31 +1,28 @@
 #pragma once
 
 #include <iostream>
-#include <string>
-#include <vector>
 #include <fstream>
 #include <random>
-#include <cmath>
 
 class NeuralNetwork
 {
 public:
-	explicit NeuralNetwork(const std::vector<int> &layers);
-	std::vector<std::vector<double>> forward(const std::vector<double> &input);
-	void backPropagate(const std::vector<double> &targets);
+	explicit NeuralNetwork(const std::vector<int> &);
+	std::vector<std::vector<double>> forward(const std::vector<double> &);
+	void backPropagate(const std::vector<double> &);
 
-	void updateWeights(double learningRate, double momentum);
-	double getError(const std::vector<double> &target);
+	void updateWeights(double, double);
+	double getError(const std::vector<double> &);
 
-	bool saveModel(const std::string &filename);
-	bool loadModel(const std::string &filename);
+	bool saveModel(const std::string &);
+	bool loadModel(const std::string &);
 
 private:
 	std::vector<std::vector<std::vector<double>>> weights, weightChanges, gradients;
 	std::vector<std::vector<double>> biases, biasChanges;
 	std::vector<std::vector<double>> activations, deltas, errors, costDerivatives;
 
-	static double sigmoid(double x);
-	static double sigmoidDerivative(double x);
-	static double cost(double output, double target);
+	static double sigmoid(double);
+	static double sigmoidDerivative(double);
+	static double cost(double, double);
 };

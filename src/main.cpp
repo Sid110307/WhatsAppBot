@@ -8,8 +8,8 @@
 
 #define LEARNING_RATE 0.1
 #define MOMENTUM 0.9
-#define HIDDEN_LAYER_SIZE 16
-#define EPOCHS 30
+#define HIDDEN_LAYER_SIZE 8
+#define EPOCHS 10
 
 #ifndef USER
 #error "Please define USER when compiling (e.g. -DUSER=\"John Doe\"). The user is the person whose messages will be used to train the neural network."
@@ -64,13 +64,19 @@ std::vector<std::string> tokenize(const std::string &str)
 	std::string token;
 
 	for (char c: str)
-	{
-		if (c == ' ' || c == ',' || c == '.' || c == '!' || c == '?')
+		if (c == ' ' || c == '.' || c == ',' || c == '!' || c == '?')
 		{
-			if (!token.empty()) tokens.push_back(token);
-			token.clear();
+			if (!token.empty())
+			{
+				tokens.push_back(token);
+				token.clear();
+			}
+			if (c != ' ')
+			{
+				std::string punct(1, c);
+				tokens.push_back(punct);
+			}
 		} else token += c;
-	}
 
 	if (!token.empty()) tokens.push_back(token);
 	return tokens;
@@ -78,41 +84,25 @@ std::vector<std::string> tokenize(const std::string &str)
 
 std::vector<std::string> getVocabulary(const std::vector<Message> &messages)
 {
-	std::vector<std::string> vocabulary;
+	std::map<std::string, int> vocabulary;
+	std::vector<std::string> tokens;
+
 	for (const Message &message: messages)
 	{
-		std::vector<std::string> tokens = tokenize(message.content);
-		for (const std::string &token: tokens)
-		{
-			bool found = false;
-			for (const std::string &word: vocabulary)
-				if (token == word)
-				{
-					found = true;
-					break;
-				}
+		if (message.sender != USER) continue;
 
-			if (!found) vocabulary.push_back(token);
+		std::vector<std::string> messageTokens = tokenize(message.content);
+		for (const std::string &token: messageTokens)
+		{
+			if (vocabulary.find(token) == vocabulary.end()) vocabulary[token] = 1;
+			else ++vocabulary[token];
 		}
 	}
 
-	std::map<std::string, int> wordCount;
-	for (const Message &message: messages)
-	{
-		std::vector<std::string> tokens = tokenize(message.content);
-		for (const std::string &token: tokens) wordCount[token]++;
-	}
+	tokens.reserve(vocabulary.size());
+	for (const auto &pair: vocabulary) tokens.push_back(pair.first);
 
-	for (int i = 0; i < (int) vocabulary.size(); ++i)
-	{
-		if (wordCount[vocabulary[i]] < 2)
-		{
-			vocabulary.erase(vocabulary.begin() + i);
-			i--;
-		}
-	}
-
-	return vocabulary;
+	return tokens;
 }
 
 std::vector<std::vector<double>> getInputs(const std::vector<Message> &messages, const std::vector<std::string> &vocab)
@@ -120,16 +110,15 @@ std::vector<std::vector<double>> getInputs(const std::vector<Message> &messages,
 	std::vector<std::vector<double>> inputs;
 	for (const Message &message: messages)
 	{
-		std::vector<double> input(vocab.size());
-		std::vector<std::string> tokens = tokenize(message.content);
-		for (const std::string &token: tokens)
+		if (message.sender != USER) continue;
+
+		std::vector<double> input(vocab.size(), 0.0);
+		std::vector<std::string> messageTokens = tokenize(message.content);
+
+		for (const std::string &token: messageTokens)
 		{
-			for (int i = 0; i < (int) vocab.size(); ++i)
-				if (token == vocab[i])
-				{
-					input[i] = 1;
-					break;
-				}
+			auto it = std::find(vocab.begin(), vocab.end(), token);
+			if (it != vocab.end()) input[it - vocab.begin()] = 1.0;
 		}
 
 		inputs.push_back(input);
@@ -143,13 +132,37 @@ std::vector<std::vector<double>> getOutputs(const std::vector<Message> &messages
 	std::vector<std::vector<double>> outputs;
 	for (const Message &message: messages)
 	{
-		std::vector<double> output(vocab.size());
-		for (int i = 0; i < (int) vocab.size(); ++i) if (message.sender == USER) output[i] = 1;
+		std::vector<double> output(vocab.size(), 0.0);
+		std::vector<std::string> messageTokens = tokenize(message.content);
+
+		for (const std::string &token: messageTokens)
+		{
+			auto it = std::find(vocab.begin(), vocab.end(), token);
+			if (it != vocab.end()) output[it - vocab.begin()] = 1.0;
+		}
 
 		outputs.push_back(output);
 	}
 
 	return outputs;
+}
+
+std::string respond(const std::string &userInput, const std::vector<std::string> &vocabulary, NeuralNetwork &nn)
+{
+	std::vector<double> input(vocabulary.size(), 0.0);
+	std::vector<std::string> tokens = tokenize(userInput);
+
+	for (const std::string &token: tokens)
+	{
+		auto it = std::find(vocabulary.begin(), vocabulary.end(), token);
+		if (it != vocabulary.end()) input[it - vocabulary.begin()] = 1.0;
+	}
+
+	std::vector<std::vector<double>> output = nn.forward(input);
+	std::string response;
+
+	for (int i = 0; i < output[0].size(); ++i) if (output[0][i] > 0.5) response += vocabulary[i] + " ";
+	return response;
 }
 
 int main(int argc, char** argv)
@@ -218,22 +231,7 @@ int main(int argc, char** argv)
 		}
 
 		std::vector<std::vector<double>> output = nn.forward(input);
-
-		std::cout << "Possible responses: ";
-		std::vector<std::string> responses;
-
-		for (int i = 0; i < (int) output[0].size(); ++i) if (output[0][i] > 0.5) responses.push_back(vocabulary[i]);
-		if (responses.empty()) std::cout << "None" << std::endl;
-		else
-		{
-			for (int i = 0; i < (int) responses.size(); ++i)
-			{
-				std::cout << responses[i];
-				if (i < (int) responses.size() - 1) std::cout << " ";
-			}
-
-			std::cout << std::endl;
-		}
+		std::cout << "Bot: " << respond(message, vocabulary, nn) << std::endl;
 	}
 
 	return EXIT_SUCCESS;

@@ -105,7 +105,7 @@ void NeuralNetwork::updateWeights(double learningRate, double momentum)
 double NeuralNetwork::getError(const std::vector<double> &target)
 {
 	double error = 0;
-	for (int i = 0; i < (int) target.size(); ++i) error += cost(activations.back()[i], target[i]);
+	for (int i = 0; i < (int) target.size(); ++i) error += cost(target[i], activations.back()[i]);
 
 	return error;
 }
@@ -152,7 +152,7 @@ bool NeuralNetwork::loadModel(const std::string &filename)
 
 double NeuralNetwork::sigmoid(double x)
 {
-	return 1 / (1 + exp(-x));
+	return 1 / (1 + std::exp(-x));
 }
 
 double NeuralNetwork::sigmoidDerivative(double x)
@@ -161,7 +161,7 @@ double NeuralNetwork::sigmoidDerivative(double x)
 	return sigmoidX * (1 - sigmoidX);
 }
 
-double NeuralNetwork::cost(double output, double target)
+double NeuralNetwork::cost(double target, double output)
 {
-	return 0.5 * pow(output - target, 2);
+	return 0.5 * std::pow(target - output, 2);
 }
